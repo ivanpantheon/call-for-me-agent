@@ -192,13 +192,29 @@ async def chat_completions_asr(request_data: dict):
     }
 
 
+_LANG_CODE_MAP = {
+    "en": "English", "zh": "Chinese", "yue": "Cantonese", "ar": "Arabic",
+    "de": "German", "fr": "French", "es": "Spanish", "pt": "Portuguese",
+    "id": "Indonesian", "it": "Italian", "ko": "Korean", "ru": "Russian",
+    "th": "Thai", "vi": "Vietnamese", "ja": "Japanese", "tr": "Turkish",
+    "hi": "Hindi", "ms": "Malay", "nl": "Dutch", "sv": "Swedish",
+    "da": "Danish", "fi": "Finnish", "pl": "Polish", "cs": "Czech",
+    "fil": "Filipino", "fa": "Persian", "el": "Greek", "ro": "Romanian",
+    "hu": "Hungarian", "mk": "Macedonian",
+}
+
+
 def _transcribe(audio_data: np.ndarray, sample_rate: int, language: str | None) -> tuple[str, str]:
     """Transcribe audio using the Qwen3-ASR model.
 
     Returns (text, detected_language).
     """
+    # Map language codes (e.g. "en") to full names (e.g. "English")
+    if language and language.lower() in _LANG_CODE_MAP:
+        language = _LANG_CODE_MAP[language.lower()]
+
     logger.info(f"ASR: sr={sample_rate}, samples={len(audio_data)}, "
-                f"duration={len(audio_data)/sample_rate:.1f}s")
+                f"duration={len(audio_data)/sample_rate:.1f}s, lang={language}")
 
     results = model.transcribe(
         audio=(audio_data, sample_rate),
