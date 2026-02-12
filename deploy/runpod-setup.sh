@@ -16,6 +16,15 @@
 
 set -euo pipefail
 
+# --- 0. Move HuggingFace cache to workspace volume (root overlay is only 20GB) ---
+export HF_HOME=/workspace/hf_cache
+mkdir -p "$HF_HOME"
+if [ -d /root/.cache/huggingface ] && [ ! -L /root/.cache/huggingface ]; then
+    mv /root/.cache/huggingface/* "$HF_HOME/" 2>/dev/null || true
+    rm -rf /root/.cache/huggingface
+    ln -s "$HF_HOME" /root/.cache/huggingface
+fi
+
 echo "============================================"
 echo " Call-for-Me Agent - RunPod Setup"
 echo "============================================"
@@ -73,21 +82,21 @@ if [ "$GPU_MEM" -ge 70000 ]; then
     echo "  Using full model stack (ASR 0.6B + LLM 8B + TTS 0.6B + Shadow 32B)"
     ASR_MODEL="Qwen/Qwen3-ASR-0.6B"
     LLM_MODEL="Qwen/Qwen3-8B"
-    TTS_MODEL="Qwen/Qwen3-TTS-0.6B-CustomVoice"
+    TTS_MODEL="Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice"
     SHADOW_MODEL="Qwen/Qwen3-32B"
     SHADOW_GPU_UTIL="0.40"
 elif [ "$GPU_MEM" -ge 40000 ]; then
     echo "  Using reduced stack (ASR 0.6B + LLM 8B + TTS 0.6B + Shadow 14B)"
     ASR_MODEL="Qwen/Qwen3-ASR-0.6B"
     LLM_MODEL="Qwen/Qwen3-8B"
-    TTS_MODEL="Qwen/Qwen3-TTS-0.6B-CustomVoice"
+    TTS_MODEL="Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice"
     SHADOW_MODEL="Qwen/Qwen3-14B"
     SHADOW_GPU_UTIL="0.30"
 else
     echo "  Using minimal stack (ASR 0.6B + LLM 4B + TTS 0.6B, no shadow model)"
     ASR_MODEL="Qwen/Qwen3-ASR-0.6B"
     LLM_MODEL="Qwen/Qwen3-4B"
-    TTS_MODEL="Qwen/Qwen3-TTS-0.6B-CustomVoice"
+    TTS_MODEL="Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice"
     SHADOW_MODEL=""
     SHADOW_GPU_UTIL="0"
 fi
@@ -109,9 +118,8 @@ nohup python -m vllm.entrypoints.openai.api_server \
     --model "$LLM_MODEL" \
     --port 8002 \
     --dtype auto \
-    --quantization awq \
     --max-model-len 8192 \
-    --gpu-memory-utilization 0.20 \
+    --gpu-memory-utilization 0.25 \
     > /tmp/vllm-llm.log 2>&1 &
 echo "    PID: $!"
 
@@ -133,8 +141,7 @@ if [ -n "$SHADOW_MODEL" ]; then
         --model "$SHADOW_MODEL" \
         --port 8004 \
         --dtype auto \
-        --quantization awq \
-        --max-model-len 16384 \
+        --max-model-len 8192 \
         --gpu-memory-utilization "$SHADOW_GPU_UTIL" \
         > /tmp/vllm-shadow.log 2>&1 &
     echo "    PID: $!"
