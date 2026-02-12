@@ -74,8 +74,12 @@ async def create_pipeline(
         model=settings.llm_model,
     )
 
-    # ASR: Qwen3-ASR
-    asr = Qwen3ASRProcessor(sample_rate=settings.audio_sample_rate)
+    # ASR: Qwen3-ASR (with language hint to avoid Chinese hallucination on noise)
+    call_language = call_plan.get("language", "en") if call_plan else "en"
+    asr = Qwen3ASRProcessor(
+        sample_rate=settings.audio_sample_rate,
+        language=call_language,
+    )
 
     # TTS: Qwen3-TTS
     tts = Qwen3TTSProcessor(

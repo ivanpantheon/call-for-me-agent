@@ -138,6 +138,7 @@ async def chat_completions_asr(request_data: dict):
     audio_b64 = None
     audio_format = "pcm"
     sample_rate = 8000
+    language = request_data.get("language")  # Optional language hint
 
     for msg in messages:
         content = msg.get("content", [])
@@ -164,11 +165,11 @@ async def chat_completions_asr(request_data: dict):
     try:
         if audio_format == "pcm":
             audio_data = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
-            text, detected_lang = _transcribe(audio_data, sample_rate, None)
+            text, detected_lang = _transcribe(audio_data, sample_rate, language)
         else:
             buf = io.BytesIO(audio_bytes)
             audio_data, sr = sf.read(buf)
-            text, detected_lang = _transcribe(audio_data, sr, None)
+            text, detected_lang = _transcribe(audio_data, sr, language)
     except Exception as e:
         logger.error(f"Transcription failed: {e}", exc_info=True)
         raise HTTPException(500, f"Transcription failed: {str(e)}")

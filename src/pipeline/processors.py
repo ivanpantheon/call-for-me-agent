@@ -37,30 +37,70 @@ class Qwen3ASRProcessor(FrameProcessor):
 
     Receives AudioRawFrames from the transport, batches them, and sends
     to the Qwen3-ASR model for streaming transcription.
+
+    Includes energy-based pre-filtering to avoid transcribing silence,
+    and filters known hallucination patterns (Chinese filler sounds from noise).
     """
 
-    def __init__(self, sample_rate: int = 8000, **kwargs):
+    # Patterns the ASR hallucinates from silence/noise
+    _HALLUCINATION_PATTERNS = {
+        "嗯", "嗯。", "嗯嗯", "呵呵", "啊", "哦", "呃", "唔",
+        "嗯 。", "嗯.", "啊。", "哦。", "呃。",
+    }
+
+    def __init__(
+        self,
+        sample_rate: int = 8000,
+        language: str = "en",
+        energy_threshold: float = 0.005,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         self._sample_rate = sample_rate
+        self._language = language
+        self._energy_threshold = energy_threshold
         self._audio_buffer = bytearray()
         self._buffer_duration_ms = 0
-        self._min_buffer_ms = 500  # Accumulate at least 500ms before transcribing
+        self._min_buffer_ms = 1000  # Accumulate at least 1s before transcribing
         self._client = httpx.AsyncClient(base_url=settings.vllm_asr_base_url, timeout=30.0)
         self._transcribing = False
+
+    @staticmethod
+    def _compute_rms_energy(audio_bytes: bytes) -> float:
+        """Compute RMS energy of 16-bit PCM audio. Returns 0.0-1.0 range."""
+        if len(audio_bytes) < 2:
+            return 0.0
+        samples = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+        return float(np.sqrt(np.mean(samples ** 2)))
+
+    def _is_hallucination(self, text: str) -> bool:
+        """Check if transcription is a known hallucination pattern."""
+        cleaned = text.strip().rstrip(".,。，")
+        return cleaned in self._HALLUCINATION_PATTERNS or text.strip() in self._HALLUCINATION_PATTERNS
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
 
         if isinstance(frame, AudioRawFrame):
+            # Always pass audio downstream so VAD in user aggregator works
+            await self.push_frame(frame, direction)
+
             self._audio_buffer.extend(frame.audio)
             bytes_per_ms = (self._sample_rate * 2) / 1000  # 16-bit = 2 bytes per sample
             self._buffer_duration_ms = len(self._audio_buffer) / bytes_per_ms
 
             if self._buffer_duration_ms >= self._min_buffer_ms and not self._transcribing:
-                self._transcribing = True
                 audio_data = bytes(self._audio_buffer)
                 self._audio_buffer.clear()
                 self._buffer_duration_ms = 0
+
+                # Skip silent audio - don't waste ASR compute on noise
+                rms = self._compute_rms_energy(audio_data)
+                if rms < self._energy_threshold:
+                    logger.debug(f"ASR: skipping silent chunk (rms={rms:.4f})")
+                    return
+
+                self._transcribing = True
                 asyncio.create_task(self._transcribe(audio_data))
 
         elif isinstance(frame, (CancelFrame, EndFrame, StartInterruptionFrame)):
@@ -77,42 +117,48 @@ class Qwen3ASRProcessor(FrameProcessor):
             # Encode audio as base64 for the API
             audio_b64 = base64.b64encode(audio_data).decode("utf-8")
 
-            # Use vLLM's OpenAI-compatible chat completions endpoint
-            # Qwen3-ASR expects audio input via the chat API
+            # Use the chat completions endpoint with language hint
+            request_body = {
+                "model": settings.asr_model,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "input_audio",
+                                "input_audio": {
+                                    "data": audio_b64,
+                                    "format": "pcm",
+                                    "sample_rate": self._sample_rate,
+                                },
+                            }
+                        ],
+                    }
+                ],
+                "stream": False,
+                "max_tokens": 500,
+            }
+            if self._language:
+                request_body["language"] = self._language
+
             response = await self._client.post(
                 "/chat/completions",
-                json={
-                    "model": settings.asr_model,
-                    "messages": [
-                        {
-                            "role": "user",
-                            "content": [
-                                {
-                                    "type": "input_audio",
-                                    "input_audio": {
-                                        "data": audio_b64,
-                                        "format": "pcm",
-                                        "sample_rate": self._sample_rate,
-                                    },
-                                }
-                            ],
-                        }
-                    ],
-                    "stream": False,
-                    "max_tokens": 500,
-                },
+                json=request_body,
             )
             response.raise_for_status()
             result = response.json()
 
             text = result["choices"][0]["message"]["content"].strip()
-            if text:
+            if text and not self._is_hallucination(text):
+                logger.info(f"ASR transcription: '{text}'")
                 frame = TranscriptionFrame(
                     text=text,
                     user_id="callee",
                     timestamp=str(time.time()),
                 )
                 await self.push_frame(frame)
+            elif text:
+                logger.debug(f"ASR: filtered hallucination '{text}'")
 
         except Exception as e:
             logger.error(f"ASR error: {e}")
