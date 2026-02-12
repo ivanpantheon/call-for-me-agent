@@ -99,7 +99,6 @@ async def initiate_call(request: CallRequest):
             from_=settings.twilio_phone_number,
             url=twiml_url,
             method="POST",
-            machine_detection="Enable",  # AMD
             status_callback=f"{settings.public_base_url}/call-status/{call_id}",
             status_callback_event=["initiated", "ringing", "answered", "completed"],
         )
