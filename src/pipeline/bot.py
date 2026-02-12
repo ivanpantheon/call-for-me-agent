@@ -28,7 +28,8 @@ from pipecat.transports.websocket.fastapi import (
     FastAPIWebsocketParams,
     FastAPIWebsocketTransport,
 )
-from pipecat.turns.user_stop import TurnAnalyzerUserTurnStopStrategy
+from pipecat.turns.user_start import VADUserTurnStartStrategy
+from pipecat.turns.user_stop import SpeechTimeoutUserTurnStopStrategy
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
 
 from src.config import settings
@@ -103,6 +104,17 @@ async def create_pipeline(
         messages[0]["content"] += f"\n\nUser information you may need to provide:\n{info_text}"
 
     context = LLMContext(messages)
+
+    # Use only VAD for turn start detection. The default includes
+    # TranscriptionUserTurnStartStrategy which causes every ASR result
+    # to trigger an interruption, preventing the LLM from ever completing
+    # a response. With VAD-only, interruptions are based on actual speech
+    # detection from Silero VAD, not transcription events.
+    turn_strategies = UserTurnStrategies(
+        start=[VADUserTurnStartStrategy()],
+        stop=[SpeechTimeoutUserTurnStopStrategy(stop_secs=0.8)],
+    )
+
     user_aggregator, assistant_aggregator = LLMContextAggregatorPair(
         context,
         user_params=LLMUserAggregatorParams(
@@ -111,6 +123,7 @@ async def create_pipeline(
                     stop_secs=settings.vad_threshold_ms / 1000.0,
                 )
             ),
+            user_turn_strategies=turn_strategies,
         ),
     )
 
