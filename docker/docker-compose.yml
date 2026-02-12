@@ -1,0 +1,164 @@
+version: "3.8"
+
+services:
+  # ============================================================
+  # Model Inference (vLLM)
+  # ============================================================
+
+  # Qwen3-ASR: Speech-to-Text (0.6B, ~2GB VRAM)
+  vllm-asr:
+    image: vllm/vllm-openai:latest
+    command: >
+      --model Qwen/Qwen3-ASR-0.6B
+      --port 8001
+      --dtype auto
+      --max-model-len 4096
+      --gpu-memory-utilization 0.15
+    ports:
+      - "8001:8001"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    volumes:
+      - model-cache:/root/.cache/huggingface
+    environment:
+      - HUGGING_FACE_HUB_TOKEN=${HUGGING_FACE_HUB_TOKEN:-}
+    restart: unless-stopped
+
+  # Qwen3-8B: Dialogue LLM (INT4, ~5GB VRAM)
+  vllm-llm:
+    image: vllm/vllm-openai:latest
+    command: >
+      --model Qwen/Qwen3-8B
+      --port 8002
+      --dtype auto
+      --quantization awq
+      --max-model-len 8192
+      --gpu-memory-utilization 0.25
+    ports:
+      - "8002:8002"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    volumes:
+      - model-cache:/root/.cache/huggingface
+    environment:
+      - HUGGING_FACE_HUB_TOKEN=${HUGGING_FACE_HUB_TOKEN:-}
+    restart: unless-stopped
+
+  # Qwen3-TTS: Text-to-Speech (0.6B, ~2GB VRAM)
+  vllm-tts:
+    image: vllm/vllm-openai:latest
+    command: >
+      --model Qwen/Qwen3-TTS-0.6B-CustomVoice
+      --port 8003
+      --dtype auto
+      --max-model-len 4096
+      --gpu-memory-utilization 0.15
+    ports:
+      - "8003:8003"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    volumes:
+      - model-cache:/root/.cache/huggingface
+    environment:
+      - HUGGING_FACE_HUB_TOKEN=${HUGGING_FACE_HUB_TOKEN:-}
+    restart: unless-stopped
+
+  # Qwen3-32B: Shadow Model (INT4, ~20GB VRAM)
+  vllm-shadow:
+    image: vllm/vllm-openai:latest
+    command: >
+      --model Qwen/Qwen3-32B
+      --port 8004
+      --dtype auto
+      --quantization awq
+      --max-model-len 16384
+      --gpu-memory-utilization 0.40
+    ports:
+      - "8004:8004"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    volumes:
+      - model-cache:/root/.cache/huggingface
+    environment:
+      - HUGGING_FACE_HUB_TOKEN=${HUGGING_FACE_HUB_TOKEN:-}
+    restart: unless-stopped
+
+  # ============================================================
+  # Infrastructure
+  # ============================================================
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: callbot
+      POSTGRES_PASSWORD: callbot
+      POSTGRES_DB: callbot
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  # ============================================================
+  # Application
+  # ============================================================
+
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID}
+      - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN}
+      - TWILIO_PHONE_NUMBER=${TWILIO_PHONE_NUMBER}
+      - VLLM_ASR_BASE_URL=http://vllm-asr:8001/v1
+      - VLLM_LLM_BASE_URL=http://vllm-llm:8002/v1
+      - VLLM_TTS_BASE_URL=http://vllm-tts:8003/v1
+      - VLLM_SHADOW_BASE_URL=http://vllm-shadow:8004/v1
+      - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=postgresql://callbot:callbot@postgres:5432/callbot
+      - PUBLIC_BASE_URL=${PUBLIC_BASE_URL}
+    depends_on:
+      - redis
+      - postgres
+      - vllm-asr
+      - vllm-llm
+      - vllm-tts
+      - vllm-shadow
+    restart: unless-stopped
+
+volumes:
+  model-cache:
+  redis-data:
+  pg-data:

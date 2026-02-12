@@ -1,0 +1,44 @@
+[project]
+name = "call-for-me-agent"
+version = "0.1.0"
+description = "Open-source AI phone agent that makes outbound calls on your behalf"
+requires-python = ">=3.11"
+dependencies = [
+    "pipecat-ai[silero,daily]>=0.0.60",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.34.0",
+    "twilio>=9.0.0",
+    "redis>=5.0.0",
+    "openai>=1.50.0",  # Used as OpenAI-compatible client for vLLM
+    "httpx>=0.28.0",
+    "pydantic>=2.10.0",
+    "pydantic-settings>=2.7.0",
+    "numpy>=1.26.0",
+    "soundfile>=0.12.0",
+    "websockets>=14.0",
+    "loguru>=0.7.0",
+    "asyncio-redis>=0.16.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+    "ruff>=0.8.0",
+]
+translation = [
+    "transformers>=4.46.0",
+    "sentencepiece>=0.2.0",
+    "torch>=2.5.0",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
