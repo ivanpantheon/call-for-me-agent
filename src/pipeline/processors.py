@@ -52,7 +52,7 @@ class Qwen3ASRProcessor(FrameProcessor):
         self,
         sample_rate: int = 8000,
         language: str = "en",
-        energy_threshold: float = 0.005,
+        energy_threshold: float = 0.001,
         **kwargs,
     ):
         super().__init__(**kwargs)

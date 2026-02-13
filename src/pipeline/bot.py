@@ -121,6 +121,7 @@ async def create_pipeline(
             vad_analyzer=SileroVADAnalyzer(
                 params=VADParams(
                     stop_secs=settings.vad_threshold_ms / 1000.0,
+                    min_volume=0.01,  # Twilio 8kHz mulaw has very low amplitude
                 )
             ),
             user_turn_strategies=turn_strategies,
