@@ -14,6 +14,7 @@ from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
+from pipecat.frames.frames import LLMMessagesFrame
 from pipecat.pipeline.task import PipelineParams, PipelineTask
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
@@ -155,6 +156,10 @@ async def create_pipeline(
     @transport.event_handler("on_client_connected")
     async def on_client_connected(transport, client):
         logger.info(f"Call {call_id}: client connected")
+        # Proactively greet the callee so they hear the AI immediately
+        messages = context.get_messages()
+        messages.append({"role": "user", "content": "[The callee just picked up the phone. Say a brief, friendly greeting and state why you are calling.]"})
+        await task.queue_frames([LLMMessagesFrame(messages)])
 
     @transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(transport, client):

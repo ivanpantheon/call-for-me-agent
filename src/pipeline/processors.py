@@ -26,6 +26,7 @@ from pipecat.frames.frames import (
     StartInterruptionFrame,
     TextFrame,
     TranscriptionFrame,
+    TTSAudioRawFrame,
 )
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 
@@ -231,7 +232,7 @@ class Qwen3TTSProcessor(FrameProcessor):
                     if not self._generating:
                         break  # Stop if interrupted
                     chunk = audio_data[i : i + chunk_size]
-                    frame = AudioRawFrame(
+                    frame = TTSAudioRawFrame(
                         audio=chunk,
                         sample_rate=self._sample_rate,
                         num_channels=1,
